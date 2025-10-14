@@ -436,7 +436,7 @@ async def lead_molecule(
                         cost=get_price(canonical_smiles),
                         # Not sure what to put here
                         hoverInfo=mol_hov,
-                        x=node_id * 150,
+                        x=node_id * 250,
                         y=100,
                     )
 
