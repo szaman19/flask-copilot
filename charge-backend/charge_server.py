@@ -85,9 +85,9 @@ CURRENT_TASK: asyncio.Task | None = None
 # TODO: Convert this to a dataclass
 MOLECULE_HOVER_TEMPLATE = """**SMILES:** `{smiles}`\n
 ## Properties
- - **Bandgap:** {bandgap:.2f}
+ - **Band gap:** {bandgap:.2f}
  - **Density:** {density:.3f}
- - **SA Score:** {sascore:.3f}"""
+ - **Synthesizability (SA) Score:** {sascore:.3f}"""
 
 app = FastAPI()
 
@@ -301,7 +301,7 @@ async def generate_molecules(
 
             await asyncio.sleep(0.2)
     await websocket.send_json(
-        {"type": "node_update", "id": root.id, "highlight": False}
+        {"type": "node_update", "id": root.id, "highlight": "normal"}
     )
 
     await websocket.send_json({"type": "complete"})
