@@ -42,7 +42,7 @@ class Node:
     cost: Optional[float] = None
     bandgap: Optional[float] = None
     yield_: Optional[float] = None
-    highlight: Optional[bool] = False
+    highlight: Optional[str] = "normal"
     density: Optional[float] = None
 
     def json(self):
