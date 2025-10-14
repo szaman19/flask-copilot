@@ -474,15 +474,6 @@ async def lead_molecule(
         # TODO: Compute here!!!
         await asyncio.sleep(0.8)
 
-    # edge_data = {
-    #     "type": "edge",
-    #     "id": f"edge_{0}_{1}",
-    #     "status": "Completed",
-    #     "label": "Optimization Complete",
-    #     "fromNode": {"id": f"node_{0}", "x": 0, "y": -150},
-    #     "toNode": {"id": f"node_{1}", "x": 200, "y": -150},
-    # }
-
     await websocket.send_json({"type": "complete"})
 
 
