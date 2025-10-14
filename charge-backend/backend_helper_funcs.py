@@ -43,6 +43,7 @@ class Node:
     bandgap: Optional[float] = None
     yield_: Optional[float] = None
     highlight: Optional[bool] = False
+    density: Optional[float] = None
 
     def json(self):
         ret = asdict(self)
@@ -92,6 +93,15 @@ def get_yield(parent, child_smiles_list):
     import random
 
     return round(random.uniform(50.0, 100.0), 2)
+
+
+def get_bandgap(smiles: str) -> float:
+    """Mock function to get bandgap of a molecule given its SMILES string."""
+    # In a real implementation, this would query a database or an API.
+    # Here, we return a random bandgap for demonstration purposes.
+    import random
+
+    return round(random.uniform(1.0, 5.0), 2)
 
 
 class CallbackHandler:

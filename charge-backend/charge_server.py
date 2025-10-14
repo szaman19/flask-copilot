@@ -30,6 +30,7 @@ from charge.clients.autogen import AutoGenClient
 import charge.servers.AiZynthTools as aizynth_funcs
 import logging
 from aizynthfinder.utils.logging import setup_logger
+
 setup_logger(console_level=logging.INFO)
 
 from loguru import logger
@@ -41,6 +42,9 @@ from backend_helper_funcs import (
     RetroSynthesisContext,
     Node,
     Edge,
+    get_bandgap,
+    get_price,
+    get_yield,
 )
 import copy
 
@@ -69,9 +73,7 @@ parser.add_argument(
     help="Path to the configuration file for AiZynthFinder.",
 )
 parser.add_argument("--port", type=int, default=8001, help="Port to run the server on")
-parser.add_argument(
-    "--host", type=str, default=None, help="Host to run the server on"
-)
+parser.add_argument("--host", type=str, default=None, help="Host to run the server on")
 
 # Add standard CLI arguments
 Client.add_std_parser_arguments(parser)
@@ -81,12 +83,11 @@ args = parser.parse_args()
 CURRENT_TASK: asyncio.Task | None = None
 
 # TODO: Convert this to a dataclass
-MOLECULE_HOVER_TEMPLATE = """**SMILES:** `{}`\n
+MOLECULE_HOVER_TEMPLATE = """**SMILES:** `{smiles}`\n
 ## Properties
- - Molecule Weight: {:.3f}
- - **Cost:** {:.2f}
- - **Density:** {:.3f}
- - **SA Score:** {:.3f}"""
+ - **Bandgap:** {bandgap:.2f}
+ - **Density:** {density:.3f}
+ - **SA Score:** {sa_score:.3f}"""
 
 app = FastAPI()
 
@@ -299,7 +300,9 @@ async def generate_molecules(
             await websocket.send_json(edge_complete)
 
             await asyncio.sleep(0.2)
-    await websocket.send_json({"type": "node_update", "id": root.id, "highlight": False})
+    await websocket.send_json(
+        {"type": "node_update", "id": root.id, "highlight": False}
+    )
 
     await websocket.send_json({"type": "complete"})
 
@@ -341,51 +344,47 @@ async def lead_molecule(
 
     leader_hov = MOLECULE_HOVER_TEMPLATE.format(
         lead_molecule_smiles,
-        0.0,  # TODO: Add molecule weight calculation
         0.0,  # TODO: Add cost calculation
         lead_molecule_data["density"],
         lead_molecule_data["sascore"],
     )
-    node = dict(
+    node = Node(
         id=f"node_{node_id}",
         smiles=lead_molecule_smiles,
         label=f"{lead_molecule_smiles}",
         # Add property calculations here
-        energy=lead_molecule_data["density"],
-        level=0,
-        cost=lead_molecule_data["sascore"],
-        # Not sure what to put here
         hoverInfo=leader_hov,
-        x=0,
-        y=node_id * 150,
+        level=0,
     )
 
-    await websocket.send_json({"type": "node", **node})
+    await websocket.send_json({"type": "node", **node.json()})
 
-    edge_data = {
-        "type": "edge",
-        "id": f"edge_{0}_{1}",
-        "status": "computing",
-        "label": "Optimizing",
-        "fromNode": {"id": f"node_{0}", "x": 0, "y": -150},
-        "toNode": {"id": f"node_{1}", "x": 200, "y": -150},
-    }
-    await websocket.send_json(edge_data)
+    edge_data = Edge(
+        id=f"edge_{0}_{1}",
+        fromNode=f"node_{0}",
+        toNode=f"node_{1}",
+        status="computing",
+        label="Optimizing",
+    )
+    await websocket.send_json({"type": "edge", **edge_data.json()})
     # Generate one node at a time
 
     mol_data = [lead_molecule_data]
     max_iterations = args.max_iterations
 
     for i in range(depth):
-        if i > 0:
-            edge_data = {
-                "type": "edge",
-                "id": f"edge_{0}_{1}",
-                "status": "computing",
-                "label": "Optimizing",
-                "fromNode": {"id": f"node_{0}", "x": 0, "y": -150},
-                "toNode": {"id": f"node_{1}", "x": 200, "y": -150},
-            }
+        edge = Edge(
+            id=f"edge_{parent_id}_{node_id}",
+            fromNode=f"node_{parent_id}",
+            toNode=f"node_{node_id+1}",
+            status="computing",
+            label="Optimizing",
+        )
+
+        edge_data = {
+            "type": "edge",
+            **edge.json(),
+        }
         await websocket.send_json(edge_data)
         # Generate new molecule
 
@@ -411,44 +410,44 @@ async def lead_molecule(
                         data=mol_data, file_path=mol_file_path
                     )
                     logger.info(f"New molecule added: {canonical_smiles}")
-                    node_id += 1
                     mol_hov = MOLECULE_HOVER_TEMPLATE.format(
-                        canonical_smiles,
-                        0.0,  # TODO: Add molecule weight calculation
-                        0.0,  # TODO: Add cost calculation
-                        processed_mol["density"],
-                        processed_mol["sascore"],
+                        smiles=canonical_smiles,
+                        bandgap=get_bandgap(canonical_smiles),
+                        density=processed_mol["density"],
+                        sa_score=processed_mol["sascore"],
                     )
-                    node = dict(
+                    node = Node(
                         id=f"node_{node_id}",
                         smiles=canonical_smiles,
                         label=f"{canonical_smiles}",
                         # Add property calculations here
-                        energy=processed_mol["density"],
+                        density=processed_mol["density"],
+                        bandgap=get_bandgap(canonical_smiles),
+                        yield_=None,
                         level=0,
-                        cost=processed_mol["sascore"],
+                        cost=get_price(canonical_smiles),
                         # Not sure what to put here
                         hoverInfo=mol_hov,
                         x=0,
                         y=node_id * 150,
                     )
 
-                    await websocket.send_json({"type": "node", **node})
+                    await websocket.send_json({"type": "node", **node.json()})
 
-                    edge_data = {
-                        "type": "edge",
-                        "id": f"edge_{node_id}_{node_id+1}",
-                        "status": "computing",
-                        "label": "Optimizing",
-                        "fromNode": {"id": f"node_{node_id}", "x": 0, "y": -150},
-                        "toNode": {"id": f"node_{node_id+1}", "x": 200, "y": -150},
-                    }
+                    edge_data = Edge(
+                        id=f"edge_{parent_id}_{node_id+1}",
+                        fromNode=f"node_{parent_id}",
+                        toNode=f"node_{node_id+1}",
+                        status="computing",
+                        label="Optimizing",
+                    )
 
-                    await websocket.send_json(edge_data)
+                    await websocket.send_json({"type": "edge", **edge_data.json()})
                     experiment = LeadMoleculeOptimization(
                         lead_molecule=canonical_smiles
                     )
                     lmo_runner.experiment_type = experiment
+                    node_id += 1
                     parent_id = node_id
 
                     break  # Exit while loop to proceed to next node
@@ -465,26 +464,27 @@ async def lead_molecule(
                 logger.error(f"Error occurred: {e}")
         if i == depth - 1:
             break
-        edge_data = {
-            "type": "edge",
-            "id": f"edge_{0}_{1}",
-            "status": "computing",
-            "label": "Optimizing",
-            "fromNode": {"id": f"node_{0}", "x": 0, "y": -150},
-            "toNode": {"id": f"node_{1}", "x": 200, "y": -150},
-        }
-        await websocket.send_json(edge_data)
+
+        edge_data = Edge(
+            id=f"edge_{parent_id}_{node_id}",
+            status="complete",
+            label="Optimized",
+            fromNode=f"node_{parent_id}",
+            toNode=f"node_{node_id}",
+        )
+
+        await websocket.send_json({"type": "edge", **edge_data.json()})
         # TODO: Compute here!!!
         await asyncio.sleep(0.8)
 
-    edge_data = {
-        "type": "edge",
-        "id": f"edge_{0}_{1}",
-        "status": "Completed",
-        "label": "Optimization Complete",
-        "fromNode": {"id": f"node_{0}", "x": 0, "y": -150},
-        "toNode": {"id": f"node_{1}", "x": 200, "y": -150},
-    }
+    # edge_data = {
+    #     "type": "edge",
+    #     "id": f"edge_{0}_{1}",
+    #     "status": "Completed",
+    #     "label": "Optimization Complete",
+    #     "fromNode": {"id": f"node_{0}", "x": 0, "y": -150},
+    #     "toNode": {"id": f"node_{1}", "x": 200, "y": -150},
+    # }
 
     await websocket.send_json({"type": "complete"})
 
