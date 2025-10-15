@@ -6,13 +6,17 @@ sys.path.append(os.path.join(cur_dir, "ChARGe", "experiments", "Molecule_Generat
 
 import ChARGe.experiments.Molecule_Generation.mol_server as LMO_MCP
 from ChARGe.charge.servers.server_utils import update_mcp_network, get_hostname
+from ChARGe.charge.servers.molecular_property_utils import chemprop_preds_server
+from ChARGe.charge.servers import SMILES_utils
 
 
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Run a ChARGe MCP Server")
-    parser.add_argument("--port", type=int, default=8124, help="Port to run the server on")
+    parser.add_argument(
+        "--port", type=int, default=8124, help="Port to run the server on"
+    )
     parser.add_argument(
         "--host", type=str, default=None, help="Host to run the server on"
     )
@@ -22,6 +26,9 @@ if __name__ == "__main__":
     host = args.host
 
     mcp = LMO_MCP.mcp
+    mcp.tool()(SMILES_utils.canonicalize_smiles)
+    mcp.tool()(SMILES_utils.verify_smiles)
+    mcp.tool()(chemprop_preds_server)
 
     if host is None:
         _, host = get_hostname()
