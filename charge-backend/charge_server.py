@@ -194,6 +194,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Sample run function
                     # Should be written over - S.Z
 
+                    run_func = partial(asyncio.sleep, 2)
+
                     # run_func = partial(
                     #     aizynth_retro,
                     #     data["smiles"],
@@ -234,12 +236,23 @@ async def websocket_endpoint(websocket: WebSocket):
                     logger.info("Recompute reaction action received")
                     logger.info(f"Data: {data}")
                     await websocket.send_json({"type": "complete"})
-                    pass
+
+                    # Sample run function
+                    # Should be written over - S.Z
+                    run_func = partial(asyncio.sleep, 2)
+
                 elif action == "compute-reaction-from":
-                    pass
+                    # Sample run function
+                    # Should be written over - S.Z
+                    run_func = partial(asyncio.sleep, 2)
+
                 elif action == "recompute-parent-reaction":
                     logger.info("Recompute parent reaction action received")
                     logger.info(f"Data: {data}")
+
+                    # Sample run function
+                    # Should be written over - S.Z
+                    run_func = partial(asyncio.sleep, 2)
 
                     # Sample task to perform constrained retrosynthesis
                     # Should be written over - S.Z
@@ -281,6 +294,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     #     retro_synth_context,
                     #     websocket,
                     # )
+
                 else:
                     raise ValueError(f"Unknown action: {action}")
 
