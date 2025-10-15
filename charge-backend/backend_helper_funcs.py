@@ -4,6 +4,16 @@ import asyncio
 import json
 from typing import Optional, Literal
 from dataclasses import dataclass, asdict
+from charge.servers.molecular_property_utils import chemprop_preds_server
+from charge.servers import SMILES_utils
+
+LMO_DENSITY_PROMPT_TEMPLATE = (
+    "Given the SMILES string of a molecule, predict its density in g/cm^3. "
+    + "Provide only the numerical value rounded to 3 decimal places. "
+    + "If the SMILES string is invalid, return 'Invalid SMILES'. "
+    + "Use the following format: 'Density: <value>' or 'Density: Invalid SMILES'.\n"
+    + "SMILES: {smiles}\n"
+)
 
 RETROSYNTH_UNCONSTRAINED_USER_PROMPT_TEMPLATE = (
     "Provide a retrosynthetic pathway for the target molecule {target_molecule}. "
@@ -158,6 +168,21 @@ class CallbackHandler:
 
     def __call__(self, assistant_message):
         asyncio.create_task(self.send(assistant_message))
+
+
+def post_process_smiles(
+    smiles: str,
+    parent_id: int,
+    node_id: int,
+):
+    canonical_smiles = SMILES_utils.canonicalize_smiles(smiles)
+    try:
+        density = chemprop_preds_server(canonical_smiles, "density")
+    except Exception as e:
+        logger.error(f"Error in predicting density for {canonical_smiles}: {e}")
+        density = None
+    # sa_score = SMILES_utils.get_synthesizability(canonical_smiles)
+    return {"smiles": canonical_smiles, "density": density, "sascore": 0}
 
 
 class RetroSynthesisContext:

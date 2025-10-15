@@ -14,15 +14,16 @@ import httpx
 
 cur_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(cur_dir, "ChARGe", "experiments", "Molecule_Generation"))
-from ChARGe.experiments.Molecule_Generation.LMOExperiment import (
+from charge.experiments.LMOExperiment import (
     LMOExperiment as LeadMoleculeOptimization,
+    FURTHER_REFINE_PROMPT,
 )
-from ChARGe.experiments.Retrosynthesis.RetrosynthesisExperiment import (
+from charge.experiments.RetrosynthesisExperiment import (
     TemplateFreeRetrosynthesisExperiment as RetrosynthesisExperiment,
 )
 
-import ChARGe.experiments.Molecule_Generation.helper_funcs as lmo_helper_funcs
-from ChARGe.charge.servers.server_utils import try_get_public_hostname
+import charge.utils.helper_funcs as lmo_helper_funcs
+from charge.servers.server_utils import try_get_public_hostname
 
 import os
 from charge.clients.Client import Client
@@ -45,6 +46,7 @@ from backend_helper_funcs import (
     get_bandgap,
     get_price,
     get_yield,
+    post_process_smiles,
 )
 import copy
 
@@ -319,7 +321,7 @@ async def lead_molecule(
     logger.info(f"Starting experiment with lead molecule: {lead_molecule_smiles}")
     parent_id = 0
     node_id = 0
-    lead_molecule_data = lmo_helper_funcs.post_process_smiles(
+    lead_molecule_data = post_process_smiles(
         smiles=lead_molecule_smiles, parent_id=parent_id - 1, node_id=node_id
     )
 
@@ -398,57 +400,67 @@ async def lead_molecule(
                 results = await lmo_runner.run()
                 results = results.as_list()  # Convert to list of strings
                 logger.info(f"New molecules generated: {results}")
-                processed_mol = lmo_helper_funcs.post_process_smiles(
-                    smiles=results[0], parent_id=parent_id, node_id=node_id
+
+                found_list_of_smiles = []
+                found_list_of_densities = []
+                for each_smiles in results:
+                    processed_mol = post_process_smiles(
+                        smiles=each_smiles, parent_id=parent_id, node_id=node_id
+                    )
+                    found_list_of_smiles.append(processed_mol["smiles"])
+                    found_list_of_densities.append(f"{processed_mol['density']:.3f}")
+
+                    canonical_smiles = processed_mol["smiles"]
+                    if (
+                        canonical_smiles not in new_molecules
+                        and canonical_smiles != "Invalid SMILES"
+                    ):
+                        new_molecules.append(canonical_smiles)
+                        mol_data.append(processed_mol)
+                        lmo_helper_funcs.save_list_to_json_file(
+                            data=mol_data, file_path=mol_file_path
+                        )
+                        logger.info(f"New molecule added: {canonical_smiles}")
+                        mol_hov = MOLECULE_HOVER_TEMPLATE.format(
+                            smiles=canonical_smiles,
+                            bandgap=get_bandgap(canonical_smiles),
+                            density=processed_mol["density"],
+                            sascore=processed_mol["sascore"],
+                        )
+
+                        node_id += 1
+
+                        node = Node(
+                            id=f"node_{node_id}",
+                            smiles=canonical_smiles,
+                            label=f"{canonical_smiles}",
+                            # Add property calculations here
+                            density=processed_mol["density"],
+                            bandgap=get_bandgap(canonical_smiles),
+                            yield_=None,
+                            level=i + 1,
+                            cost=get_price(canonical_smiles),
+                            # Not sure what to put here
+                            hoverInfo=mol_hov,
+                            x=node_id * 350,
+                            y=100,
+                        )
+
+                        await websocket.send_json({"type": "node", **node.json()})
+                    else:
+                        logger.info(f"Duplicate molecule found: {canonical_smiles}")
+                density_to_string = ", ".join(found_list_of_densities)
+                smiles_to_string = ", ".join(found_list_of_smiles)
+                new_user_prompt = FURTHER_REFINE_PROMPT.format(
+                    density_to_string, smiles_to_string
                 )
-                canonical_smiles = processed_mol["smiles"]
-                if (
-                    canonical_smiles not in new_molecules
-                    and canonical_smiles != "Invalid SMILES"
-                ):
-                    new_molecules.append(canonical_smiles)
-                    mol_data.append(processed_mol)
-                    lmo_helper_funcs.save_list_to_json_file(
-                        data=mol_data, file_path=mol_file_path
-                    )
-                    logger.info(f"New molecule added: {canonical_smiles}")
-                    mol_hov = MOLECULE_HOVER_TEMPLATE.format(
-                        smiles=canonical_smiles,
-                        bandgap=get_bandgap(canonical_smiles),
-                        density=processed_mol["density"],
-                        sascore=processed_mol["sascore"],
-                    )
+                experiment = LeadMoleculeOptimization(user_prompt=new_user_prompt)
+                lmo_runner.experiment_type = experiment
+                parent_id = node_id
 
-                    node_id += 1
+                break  # Exit while loop to proceed to next node
 
-                    node = Node(
-                        id=f"node_{node_id}",
-                        smiles=canonical_smiles,
-                        label=f"{canonical_smiles}",
-                        # Add property calculations here
-                        density=processed_mol["density"],
-                        bandgap=get_bandgap(canonical_smiles),
-                        yield_=None,
-                        level=i + 1,
-                        cost=get_price(canonical_smiles),
-                        # Not sure what to put here
-                        hoverInfo=mol_hov,
-                        x=node_id * 250,
-                        y=100,
-                    )
-
-                    await websocket.send_json({"type": "node", **node.json()})
-
-                    experiment = LeadMoleculeOptimization(
-                        lead_molecule=canonical_smiles
-                    )
-                    lmo_runner.experiment_type = experiment
-                    parent_id = node_id
-
-                    break  # Exit while loop to proceed to next node
-                else:
-                    logger.info(f"Duplicate molecule found: {canonical_smiles}")
-                    # Continue the while loop to try generating again
+                # Continue the while loop to try generating again
             except WebSocketDisconnect:
                 logger.info("WebSocket disconnected")
                 raise
