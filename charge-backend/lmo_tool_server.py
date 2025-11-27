@@ -11,6 +11,7 @@ import sys
 
 from charge.servers.server_utils import update_mcp_network, get_hostname
 from tool_registration import register_tool_server
+import logging
 
 
 @click.command()
@@ -81,6 +82,9 @@ def main(
     # to ensure the MCP and the backend use the same known molecules
 
     if not os.path.exists(json_file):
+        logging.warning(
+            f"Known molecules JSON file {json_file} does not exist. Creating an empty file."
+        )
         abs_path = os.path.abspath(json_file)
         with open(abs_path, "w") as f:
             pass
